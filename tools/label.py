@@ -25,15 +25,17 @@ import time
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 SPACE, P, U, J, K, H, L, Q = (ord(c) for c in " pujkhlq")
 
+HUD_HEIGHT = 110
 
-def _draw_overlay(frame, *, foot, frame_idx, total, paused, speed, marks_count, last_mark):
-    """Draw labeling HUD on the frame."""
+
+def _compose_display(frame, *, foot, frame_idx, total, paused, speed, marks_count, last_mark):
+    """Stack a HUD strip above the frame so the video itself is never occluded."""
     h, w = frame.shape[:2]
-    top = max(0, h - 110)
-    cv2.rectangle(frame, (0, top), (w, h), (0, 0, 0), -1)
+    hud = np.zeros((HUD_HEIGHT, w, 3), dtype=np.uint8)
     color_foot = (0, 200, 255) if foot == 'Left_Foot' else (255, 200, 0)
     lines = [
         f"Pass: {foot}   Marks: {marks_count}   Last: {last_mark if last_mark is not None else '-'}",
@@ -41,8 +43,9 @@ def _draw_overlay(frame, *, foot, frame_idx, total, paused, speed, marks_count, 
         "SPACE=mark  p=pause  u=undo  j/k=slower/faster  h/l=seek-2s/+2s  q=quit",
     ]
     for i, line in enumerate(lines):
-        cv2.putText(frame, line, (10, top + 28 + i * 28),
+        cv2.putText(hud, line, (10, 28 + i * 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_foot if i == 0 else (255, 255, 255), 1, cv2.LINE_AA)
+    return np.vstack([hud, frame])
 
 
 def _load_existing(out_csv: Path) -> list[tuple[int, str]]:
@@ -88,7 +91,7 @@ def label_pass(video: Path, out_csv: Path, foot: str, initial_speed: float = 0.5
     ok, frame = cap.read()
 
     win = f"Label {foot}"
-    cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+    cv2.namedWindow(win, cv2.WINDOW_AUTOSIZE)
 
     last_render = time.time()
 
@@ -104,11 +107,12 @@ def label_pass(video: Path, out_csv: Path, foot: str, initial_speed: float = 0.5
                 break
             last_render = now
 
-        display = frame.copy()
-        _draw_overlay(display, foot=foot, frame_idx=frame_idx, total=total,
-                      paused=paused, speed=speed,
-                      marks_count=len(this_foot_rows),
-                      last_mark=this_foot_rows[-1][0] if this_foot_rows else None)
+        display = _compose_display(
+            frame, foot=foot, frame_idx=frame_idx, total=total,
+            paused=paused, speed=speed,
+            marks_count=len(this_foot_rows),
+            last_mark=this_foot_rows[-1][0] if this_foot_rows else None,
+        )
         cv2.imshow(win, display)
 
         key = cv2.waitKey(1) & 0xFF
