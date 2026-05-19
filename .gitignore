@@ -22,6 +22,9 @@ runs/
 # Jupyter
 .ipynb_checkpoints/
 
+# Pytest
+.pytest_cache/
+
 # IDE
 .vscode/
 .idea/
