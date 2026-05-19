@@ -31,13 +31,18 @@ def test_center_frame_in_middle_slot():
 
 
 def test_window_edges_get_nan():
-    """At frame 0 with window_radius=2, the past-2 and past-1 slots have no data => NaN."""
+    """At frame 0 with window_radius=2, the past-2 and past-1 slots have no data => NaN.
+    Symmetric check at the last frame for the future-2 and future-1 slots."""
     df = _toy_features(n_frames=5, n_feats=1)
     X = build_features_matrix(df, window_radius=2)
     # Slot 0 corresponds to offset=-2 => columns [0:1]
     # Slot 1 corresponds to offset=-1 => columns [1:2]
     assert np.isnan(X[0, 0])  # past-2
     assert np.isnan(X[0, 1])  # past-1
+    # Slot 4 corresponds to offset=+2 => columns [4:5]
+    # Slot 3 corresponds to offset=+1 => columns [3:4]
+    assert np.isnan(X[-1, 4])  # future+2
+    assert np.isnan(X[-1, 3])  # future+1
 
 
 def test_build_labels_basic():
