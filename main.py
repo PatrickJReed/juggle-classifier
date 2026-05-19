@@ -140,7 +140,6 @@ def main():
         ball_y_meas, ball_y_pred = [], []
         juggle_events = []          # list of (frame_idx, body_part)
         prev_counts = {}
-        frame_idx = 0
 
     # Initialise visualiser
     visualiser = Visualiser(
@@ -152,7 +151,7 @@ def main():
         landmark_radius=6
     )
 
-    frame_index = 0
+    frame_idx = 0
 
     # Loop
     while cap.isOpened():
@@ -177,7 +176,7 @@ def main():
 
         # count juggle
         if isinstance(juggle_counter, EventListCounter):
-            count = juggle_counter.update(frame_index)
+            count = juggle_counter.update(frame_idx)
         else:
             count = juggle_counter.update(predictions)
 
@@ -189,7 +188,6 @@ def main():
                 if n > prev_counts.get(part, 0):
                     juggle_events.append((frame_idx, part))
             prev_counts = dict(count)
-            frame_idx += 1
 
         # draw on image
         visualiser.draw(frame, POIs, count)
@@ -198,7 +196,7 @@ def main():
         visualiser.draw_total_count(frame, count)
         visualiser.draw_fps(frame, fps)
 
-        frame_index += 1
+        frame_idx += 1
 
         # show image
         if not args.headless:
