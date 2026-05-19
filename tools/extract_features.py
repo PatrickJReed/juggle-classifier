@@ -37,72 +37,75 @@ def _initial_history():
     return {part: np.empty(shape=(0, 4)) for part in PARTS}
 
 
+def _is_visible(poi_val) -> bool:
+    """True iff the raw detector returned a real (non-None, non-NaN) x coordinate."""
+    x = poi_val[0]
+    if x is None:
+        return False
+    try:
+        return not np.isnan(float(x))
+    except (TypeError, ValueError):
+        return False
+
+
+def _xy(arr: np.ndarray) -> tuple[float, float]:
+    """Latest Kalman-smoothed (x, y) for a part; NaN if no history yet."""
+    if len(arr) == 0:
+        return (np.nan, np.nan)
+    return (float(arr[-1, 0]), float(arr[-1, 1]))
+
+
 def extract(video_path: Path, ball_conf: float, track: bool) -> pd.DataFrame:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        raise SystemExit(f"could not open video: {video_path}")
+        raise IOError(f"could not open video: {video_path}")
 
     measurements = _initial_history()
     predictions = _initial_history()
     rows: list[dict] = []
     frame_idx = 0
 
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
 
-        pois = get_POI(frame, ball_conf=ball_conf, track=track)
-        # Raw measurements drive _visible flags — check BEFORE Kalman update.
-        # A value is "visible" iff the detector returned a real (non-None, non-NaN) x coordinate.
-        def _is_visible(poi_val) -> bool:
-            x = poi_val[0]
-            if x is None:
-                return False
-            try:
-                return not np.isnan(float(x))
-            except (TypeError, ValueError):
-                return False
+            pois = get_POI(frame, ball_conf=ball_conf, track=track)
+            # Raw measurements drive _visible flags — check BEFORE Kalman update.
+            raw_visible = {
+                'Ball':       _is_visible(pois['Ball']),
+                'Left_Foot':  _is_visible(pois['Left_Foot']),
+                'Right_Foot': _is_visible(pois['Right_Foot']),
+            }
+            measurements = update_measurements(measurements, pois)
+            predictions = predict_KF(measurements, predictions)
 
-        raw_visible = {
-            'Ball':       _is_visible(pois['Ball']),
-            'Left_Foot':  _is_visible(pois['Left_Foot']),
-            'Right_Foot': _is_visible(pois['Right_Foot']),
-        }
-        measurements = update_measurements(measurements, pois)
-        predictions = predict_KF(measurements, predictions)
+            ball_x, ball_y = _xy(predictions['Ball'])
+            ball_w = float(predictions['Ball'][-1, 2]) if len(predictions['Ball']) else np.nan
+            ball_h = float(predictions['Ball'][-1, 3]) if len(predictions['Ball']) else np.nan
+            lfoot_x, lfoot_y = _xy(predictions['Left_Foot'])
+            rfoot_x, rfoot_y = _xy(predictions['Right_Foot'])
+            lknee_x, lknee_y = _xy(predictions['Left_Knee'])
+            rknee_x, rknee_y = _xy(predictions['Right_Knee'])
+            head_x, head_y = _xy(predictions['Head'])
 
-        # Kalman-smoothed XY for each part (last row of history)
-        def _xy(part):
-            arr = predictions[part]
-            if len(arr) == 0:
-                return (np.nan, np.nan)
-            return (float(arr[-1, 0]), float(arr[-1, 1]))
+            rows.append({
+                'frame': frame_idx,
+                'ball_x': ball_x, 'ball_y': ball_y, 'ball_w': ball_w, 'ball_h': ball_h,
+                'ball_visible': int(raw_visible['Ball']),
+                'lfoot_x': lfoot_x, 'lfoot_y': lfoot_y,
+                'lfoot_visible': int(raw_visible['Left_Foot']),
+                'rfoot_x': rfoot_x, 'rfoot_y': rfoot_y,
+                'rfoot_visible': int(raw_visible['Right_Foot']),
+                'lknee_x': lknee_x, 'lknee_y': lknee_y,
+                'rknee_x': rknee_x, 'rknee_y': rknee_y,
+                'head_x': head_x, 'head_y': head_y,
+            })
+            frame_idx += 1
+    finally:
+        cap.release()
 
-        ball_x, ball_y = _xy('Ball')
-        ball_w = float(predictions['Ball'][-1, 2]) if len(predictions['Ball']) else np.nan
-        ball_h = float(predictions['Ball'][-1, 3]) if len(predictions['Ball']) else np.nan
-        lfoot_x, lfoot_y = _xy('Left_Foot')
-        rfoot_x, rfoot_y = _xy('Right_Foot')
-        lknee_x, lknee_y = _xy('Left_Knee')
-        rknee_x, rknee_y = _xy('Right_Knee')
-        head_x, head_y = _xy('Head')
-
-        rows.append({
-            'frame': frame_idx,
-            'ball_x': ball_x, 'ball_y': ball_y, 'ball_w': ball_w, 'ball_h': ball_h,
-            'ball_visible': int(raw_visible['Ball']),
-            'lfoot_x': lfoot_x, 'lfoot_y': lfoot_y,
-            'lfoot_visible': int(raw_visible['Left_Foot']),
-            'rfoot_x': rfoot_x, 'rfoot_y': rfoot_y,
-            'rfoot_visible': int(raw_visible['Right_Foot']),
-            'lknee_x': lknee_x, 'lknee_y': lknee_y,
-            'rknee_x': rknee_x, 'rknee_y': rknee_y,
-            'head_x': head_x, 'head_y': head_y,
-        })
-        frame_idx += 1
-
-    cap.release()
     df = pd.DataFrame(rows)
 
     # Derived features. .diff() introduces NaN at row 0 — LightGBM handles NaN.
