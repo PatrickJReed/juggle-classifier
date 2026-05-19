@@ -1,0 +1,12 @@
+# requirements-colab.txt — installed in addition to Colab's pre-baked torch.
+# Colab already has torch with CUDA; do not reinstall torch here.
+numpy<2
+ultralytics>=8.4
+mediapipe==0.10.21
+opencv-python>=4.10
+scipy>=1.13
+matplotlib>=3.10
+pandas>=2.2
+scikit-learn>=1.5
+lightgbm>=4.5
+pytest>=8.3

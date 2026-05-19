@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Videos and large media (kept on Desktop / Drive, not in git)
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# Generated outputs
+events/*.csv
+save/
+runs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Pyenv
+.python-version
