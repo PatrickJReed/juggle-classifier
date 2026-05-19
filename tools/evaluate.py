@@ -9,13 +9,14 @@ of false positives and misses for manual inspection.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 
-def match_events(pred_df: pd.DataFrame, gt_df: pd.DataFrame, tolerance: int = 5):
+def match_events(
+    pred_df: pd.DataFrame, gt_df: pd.DataFrame, tolerance: int = 5
+) -> tuple[list[int], list[int], list[int], list[int]]:
     """
     Greedy bipartite matching of predictions to ground-truth events.
 
