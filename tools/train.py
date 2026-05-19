@@ -83,7 +83,7 @@ def train(features_df: pd.DataFrame, labels_df: pd.DataFrame,
     counts = np.bincount(y, minlength=3)
     print(f"Class counts: none={counts[0]}, Left={counts[1]}, Right={counts[2]}")
     if counts[1] < 5 or counts[2] < 5:
-        raise SystemExit(
+        raise ValueError(
             f"need >= 5 positive examples per class; got Left={counts[1]}, Right={counts[2]}"
         )
 
