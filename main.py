@@ -2,6 +2,8 @@ import cv2
 import argparse
 import os
 import numpy as np
+import csv as _csv
+from collections import defaultdict
 
 from utils.vision_estimate import get_POI
 from utils.juggle_counter import JuggleCounter
@@ -11,6 +13,35 @@ from utils.update_predict import update_measurements, predict_KF, predict_para
 import matplotlib.pyplot as plt
 
 POI = ["Ball", "Head", "Left_Knee", "Right_Knee", "Right_Foot", "Left_Foot"]
+
+
+class EventListCounter:
+    """
+    Counter driven by a pre-computed events CSV. On each update() call we advance
+    through the events sorted by frame and increment the per-foot count whenever
+    the playback frame index has reached an event's frame.
+    """
+
+    def __init__(self, events_csv: str):
+        rows: list[tuple[int, str]] = []
+        with open(events_csv) as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                try:
+                    rows.append((int(row['frame']), row['foot']))
+                except (KeyError, ValueError):
+                    continue
+        self._events = sorted(rows, key=lambda r: r[0])
+        self._next = 0
+        self._counts: dict[str, int] = defaultdict(int)
+
+    def update(self, frame_idx: int) -> dict:
+        while self._next < len(self._events) and self._events[self._next][0] <= frame_idx:
+            _, foot = self._events[self._next]
+            self._counts[foot] += 1
+            self._next += 1
+        return dict(self._counts)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Football Juggle Counter")
@@ -27,6 +58,10 @@ def parse_args():
     parser.add_argument('--foot-window', type=int, default=5, help='Validation window (frames) around each foot peak for ball-contact / ball-blackout check.')
     parser.add_argument('--foot-spread', action='store_true', help='Count juggles via |L_foot_Y - R_foot_Y| peak detection (asymmetric leg motion). Robust when back is to camera.')
     parser.add_argument('--spread-prominence', type=float, default=0.10, help='Prominence for inter-foot-spread peak detection (only with --foot-spread).')
+    parser.add_argument('--events', type=str, default=None,
+                        help='Path to a pre-computed events CSV (frame,foot,confidence). '
+                             'When set, overrides the heuristic counter — the rendered count '
+                             'reflects these events as the video plays through their frames.')
 
     return parser.parse_args()
 
@@ -85,17 +120,20 @@ def main():
         predictions[point] = np.empty(shape=(0,4))
 
     # Initialise juggle counter
-    juggle_counter = JuggleCounter(
-        prominence=0.02,
-        min_gap_frames=5,   # 0.16s @ 30fps
-        max_distance=0.3,
-        min_history_length=10,
-        candidate_parts=["Left_Foot", "Right_Foot"] if args.feet_only else None,
-        mode=('spread' if args.foot_spread else ('foot' if args.foot_peaks else 'ball')),
-        foot_prominence=args.foot_prominence,
-        foot_validation_window=args.foot_window,
-        spread_prominence=args.spread_prominence,
-    )
+    if args.events:
+        juggle_counter = EventListCounter(args.events)
+    else:
+        juggle_counter = JuggleCounter(
+            prominence=0.02,
+            min_gap_frames=5,   # 0.16s @ 30fps
+            max_distance=0.3,
+            min_history_length=10,
+            candidate_parts=["Left_Foot", "Right_Foot"] if args.feet_only else None,
+            mode=('spread' if args.foot_spread else ('foot' if args.foot_peaks else 'ball')),
+            foot_prominence=args.foot_prominence,
+            foot_validation_window=args.foot_window,
+            spread_prominence=args.spread_prominence,
+        )
 
     # Full-video tracking for --save-plot
     if args.save_plot:
@@ -113,6 +151,8 @@ def main():
         bbox_thickness=2,
         landmark_radius=6
     )
+
+    frame_index = 0
 
     # Loop
     while cap.isOpened():
@@ -136,7 +176,10 @@ def main():
             update_plot(axes, measurements, predictions)
 
         # count juggle
-        count = juggle_counter.update(predictions)
+        if isinstance(juggle_counter, EventListCounter):
+            count = juggle_counter.update(frame_index)
+        else:
+            count = juggle_counter.update(predictions)
 
         # log per-frame ball Y + juggle events for --save-plot
         if args.save_plot:
@@ -154,6 +197,8 @@ def main():
         # Optional: draw total count and FPS
         visualiser.draw_total_count(frame, count)
         visualiser.draw_fps(frame, fps)
+
+        frame_index += 1
 
         # show image
         if not args.headless:
