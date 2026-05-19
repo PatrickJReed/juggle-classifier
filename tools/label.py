@@ -32,7 +32,7 @@ SPACE, P, U, J, K, H, L, Q = (ord(c) for c in " pujkhlq")
 def _draw_overlay(frame, *, foot, frame_idx, total, paused, speed, marks_count, last_mark):
     """Draw labeling HUD on the frame."""
     h, w = frame.shape[:2]
-    top = h - 110
+    top = max(0, h - 110)
     cv2.rectangle(frame, (0, top), (w, h), (0, 0, 0), -1)
     color_foot = (0, 200, 255) if foot == 'Left_Foot' else (255, 200, 0)
     lines = [
@@ -130,10 +130,12 @@ def label_pass(video: Path, out_csv: Path, foot: str, initial_speed: float = 0.5
             frame_idx = max(0, frame_idx - int(2 * fps))
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
             ok, frame = cap.read()
+            last_render = time.time()  # reset timer so the new frame holds a full tick
         elif key == L:
             frame_idx = min(total - 1, frame_idx + int(2 * fps))
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
             ok, frame = cap.read()
+            last_render = time.time()
 
     cap.release()
     cv2.destroyAllWindows()
