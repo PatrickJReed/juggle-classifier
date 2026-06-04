@@ -87,7 +87,10 @@ def _print_report(pred: pd.DataFrame, gt: pd.DataFrame, tolerance: int) -> None:
     print()
     print(f"Combined (tol=±{tolerance}): P={p:.3f}  R={r:.3f}  F1={f1:.3f}")
 
-    for foot in ['Left_Foot', 'Right_Foot']:
+    # Per-foot breakdown only when the labels actually distinguish feet.
+    foot_values = set(pred.get('foot', pd.Series([], dtype=object)).unique()) | set(gt.get('foot', pd.Series([], dtype=object)).unique())
+    per_foot_classes = [f for f in ('Left_Foot', 'Right_Foot') if f in foot_values]
+    for foot in per_foot_classes:
         pred_f = pred[pred['foot'] == foot].reset_index(drop=True)
         gt_f = gt[gt['foot'] == foot].reset_index(drop=True)
         tp_pf, _, fp_pf, fn_gf = match_events(pred_f, gt_f, tolerance)

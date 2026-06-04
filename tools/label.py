@@ -153,8 +153,11 @@ def label_pass(video: Path, out_csv: Path, foot: str, initial_speed: float = 0.5
 def main() -> None:
     parser = argparse.ArgumentParser(description="Two-pass juggle labeler.")
     parser.add_argument('video', type=str)
+    parser.add_argument('--mode', choices=['feet', 'juggle'], default='feet',
+                        help="'feet' = two-pass Left/Right labeling. "
+                             "'juggle' = single-pass labeling (foot-agnostic). Default: feet.")
     parser.add_argument('--foot', choices=['Left_Foot', 'Right_Foot', 'both'], default='both',
-                        help="Which pass to run. 'both' runs Left_Foot then Right_Foot. Default: both.")
+                        help="Only used in --mode feet. 'both' runs Left then Right. Default: both.")
     parser.add_argument('--out', type=str, default=None,
                         help="Output CSV path. Default: labels/<video_stem>.csv")
     parser.add_argument('--speed', type=float, default=0.5, help="Initial playback speed multiplier.")
@@ -164,6 +167,11 @@ def main() -> None:
     if not video.exists():
         raise SystemExit(f"video not found: {video}")
     out_csv = Path(args.out) if args.out else (Path('labels') / f"{video.stem}.csv")
+
+    if args.mode == 'juggle':
+        print(f"\n=== Single pass: Juggle ===  press SPACE on EVERY juggle (no L/R distinction), q to finish")
+        label_pass(video, out_csv, foot='Juggle', initial_speed=args.speed)
+        return
 
     if args.foot in ('Left_Foot', 'both'):
         print(f"\n=== Pass 1: Left_Foot ===  press SPACE every left-foot juggle, q to finish")

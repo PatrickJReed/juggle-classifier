@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tools.train import build_features_matrix, CLASS_TO_FOOT
+from tools.train import build_features_matrix, CLASS_TO_FOOT, CLASS_TO_FOOT_BINARY
 
 
 def nms(scores: np.ndarray, window: int = 5, threshold: float = 0.5) -> np.ndarray:
@@ -59,17 +59,26 @@ def main() -> None:
         bundle = pickle.load(f)
     model = bundle['model']
     window_radius = bundle.get('window_radius', 15)
+    mode = bundle.get('mode', 'feet')  # 'feet' for legacy models without explicit mode
 
     X = build_features_matrix(features_df, window_radius=window_radius)
-    proba = model.predict_proba(X)  # (n_frames, 3)
+    proba = model.predict_proba(X)  # (n_frames, num_class)
 
-    foot_proba = proba[:, 1:].max(axis=1)
-    foot_class = proba[:, 1:].argmax(axis=1) + 1  # 1=Left, 2=Right
+    if mode == 'binary':
+        # Class 0 = none, Class 1 = Juggle
+        foot_proba = proba[:, 1]
+        foot_class = np.ones(len(foot_proba), dtype=int)
+        class_to_foot = CLASS_TO_FOOT_BINARY
+    else:
+        # Class 0 = none, 1 = Left_Foot, 2 = Right_Foot
+        foot_proba = proba[:, 1:].max(axis=1)
+        foot_class = proba[:, 1:].argmax(axis=1) + 1
+        class_to_foot = CLASS_TO_FOOT
 
     keep = nms(foot_proba, window=args.nms_window, threshold=args.threshold)
     events = pd.DataFrame({
         'frame': features_df['frame'].iloc[keep].to_numpy(),
-        'foot': [CLASS_TO_FOOT[c] for c in foot_class[keep]],
+        'foot': [class_to_foot[c] for c in foot_class[keep]],
         'confidence': foot_proba[keep],
     })
 

@@ -22,6 +22,18 @@ SEED = 42
 FOOT_TO_CLASS = {'Left_Foot': 1, 'Right_Foot': 2}
 CLASS_TO_FOOT = {1: 'Left_Foot', 2: 'Right_Foot'}
 
+# Binary "Juggle" mode (no L/R distinction)
+FOOT_TO_CLASS_BINARY = {'Juggle': 1}
+CLASS_TO_FOOT_BINARY = {1: 'Juggle'}
+
+
+def detect_mode(labels_df: pd.DataFrame) -> str:
+    """Return 'binary' if labels only contain 'Juggle', else 'feet'."""
+    foot_values = set(labels_df['foot'].dropna().unique())
+    if foot_values == {'Juggle'}:
+        return 'binary'
+    return 'feet'
+
 
 def build_features_matrix(features_df: pd.DataFrame, window_radius: int = WINDOW_RADIUS) -> np.ndarray:
     """
@@ -58,8 +70,14 @@ def build_features_matrix(features_df: pd.DataFrame, window_radius: int = WINDOW
     return X
 
 
-def build_labels(features_df: pd.DataFrame, labels_df: pd.DataFrame) -> np.ndarray:
-    """Return a length-n_frames array of class labels: 0=none, 1=Left, 2=Right."""
+def build_labels(features_df: pd.DataFrame, labels_df: pd.DataFrame,
+                 mode: str = 'feet') -> np.ndarray:
+    """Return a length-n_frames array of class labels.
+
+    mode='feet':   0=none, 1=Left_Foot, 2=Right_Foot
+    mode='binary': 0=none, 1=Juggle
+    """
+    mapping = FOOT_TO_CLASS_BINARY if mode == 'binary' else FOOT_TO_CLASS
     n_frames = len(features_df)
     y = np.zeros(n_frames, dtype=int)
     for _, row in labels_df.iterrows():
@@ -68,31 +86,42 @@ def build_labels(features_df: pd.DataFrame, labels_df: pd.DataFrame) -> np.ndarr
         except (KeyError, ValueError):
             continue
         foot = row.get('foot', None)
-        if foot not in FOOT_TO_CLASS:
+        if foot not in mapping:
             continue
         if 0 <= frame < n_frames:
-            y[frame] = FOOT_TO_CLASS[foot]
+            y[frame] = mapping[foot]
     return y
 
 
 def train(features_df: pd.DataFrame, labels_df: pd.DataFrame,
-          window_radius: int = WINDOW_RADIUS) -> lgb.LGBMClassifier:
-    X = build_features_matrix(features_df, window_radius)
-    y = build_labels(features_df, labels_df)
+          window_radius: int = WINDOW_RADIUS,
+          mode: str | None = None):
+    """Train a LightGBM classifier. Auto-detects mode from labels if not specified."""
+    if mode is None:
+        mode = detect_mode(labels_df)
+    num_class = 2 if mode == 'binary' else 3
 
-    counts = np.bincount(y, minlength=3)
-    print(f"Class counts: none={counts[0]}, Left={counts[1]}, Right={counts[2]}")
-    if counts[1] < 5 or counts[2] < 5:
-        raise ValueError(
-            f"need >= 5 positive examples per class; got Left={counts[1]}, Right={counts[2]}"
-        )
+    X = build_features_matrix(features_df, window_radius)
+    y = build_labels(features_df, labels_df, mode=mode)
+
+    counts = np.bincount(y, minlength=num_class)
+    if mode == 'binary':
+        print(f"Mode: binary (Juggle)  |  counts: none={counts[0]}, Juggle={counts[1]}")
+        if counts[1] < 5:
+            raise ValueError(f"need >= 5 Juggle examples; got {counts[1]}")
+    else:
+        print(f"Mode: feet  |  counts: none={counts[0]}, Left={counts[1]}, Right={counts[2]}")
+        if counts[1] < 5 or counts[2] < 5:
+            raise ValueError(
+                f"need >= 5 positive examples per foot; got Left={counts[1]}, Right={counts[2]}"
+            )
 
     class_weight = {i: float(counts.max()) / max(int(c), 1) for i, c in enumerate(counts)}
     print(f"Class weights: {class_weight}")
 
     model = lgb.LGBMClassifier(
         objective='multiclass',
-        num_class=3,
+        num_class=num_class,
         n_estimators=500,
         num_leaves=31,
         max_depth=-1,
@@ -106,10 +135,13 @@ def train(features_df: pd.DataFrame, labels_df: pd.DataFrame,
 
     pred = model.predict(X)
     train_acc = float((pred == y).mean())
-    recall = [(pred[y == c] == c).mean() if (y == c).sum() else 0.0 for c in range(3)]
+    recall = [(pred[y == c] == c).mean() if (y == c).sum() else 0.0 for c in range(num_class)]
     print(f"Training accuracy: {train_acc:.4f}")
-    print(f"Training recall by class: none={recall[0]:.3f}, Left={recall[1]:.3f}, Right={recall[2]:.3f}")
-    return model
+    if mode == 'binary':
+        print(f"Training recall: none={recall[0]:.3f}, Juggle={recall[1]:.3f}")
+    else:
+        print(f"Training recall: none={recall[0]:.3f}, Left={recall[1]:.3f}, Right={recall[2]:.3f}")
+    return model, mode
 
 
 def main() -> None:
@@ -118,17 +150,20 @@ def main() -> None:
     parser.add_argument('--labels', type=str, required=True)
     parser.add_argument('--output', type=str, required=True, help="Output .pkl path")
     parser.add_argument('--window-radius', type=int, default=WINDOW_RADIUS)
+    parser.add_argument('--mode', choices=['feet', 'binary', 'auto'], default='auto',
+                        help="Label mode. 'auto' detects from labels CSV.")
     args = parser.parse_args()
 
     features_df = pd.read_csv(args.features)
     labels_df = pd.read_csv(args.labels)
-    model = train(features_df, labels_df, window_radius=args.window_radius)
+    mode_arg = None if args.mode == 'auto' else args.mode
+    model, mode = train(features_df, labels_df, window_radius=args.window_radius, mode=mode_arg)
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open('wb') as f:
-        pickle.dump({'model': model, 'window_radius': args.window_radius}, f)
-    print(f"Saved model to {out}")
+        pickle.dump({'model': model, 'window_radius': args.window_radius, 'mode': mode}, f)
+    print(f"Saved model ({mode} mode) to {out}")
 
 
 if __name__ == '__main__':
