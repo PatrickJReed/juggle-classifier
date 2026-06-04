@@ -131,16 +131,25 @@ class Visualiser:
         )
 
     def draw_total_count(self, frame: np.ndarray, counts:dict):
-        """Draw total juggle count across all body parts"""
-
+        """Draw total juggle count, centred along the bottom of the frame."""
         total = sum(val for key, val in counts.items() if key != "Ball")
+
+        text = f"Total: {total}"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        scale = 1.0
+        thickness = 3
+        (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
+        h, w = frame.shape[:2]
+        x = (w - text_w) // 2
+        y = h - 20  # baseline of the text sits 20px above the bottom edge
 
         cv2.putText(
             frame,
-            f"Total: {total}",
-            (10, frame.shape[0] - 20),   # Bottom left
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.0,
-            (0, 255, 255),  # Yellow
-            3
+            text,
+            (x, y),
+            font,
+            scale,
+            (0, 255, 255),  # Yellow (BGR)
+            thickness,
+            cv2.LINE_AA,
         )
